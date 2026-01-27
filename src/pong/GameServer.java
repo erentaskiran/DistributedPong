@@ -10,6 +10,11 @@ public class GameServer {
     private ObjectOutputStream out;
     private ObjectInputStream in;
 
+    private GameState gameState;
+    private GamePanel gamePanel;
+    private Thread gameLoopThread;
+    private volatile boolean running = false;
+
     public GameServer() {
         try {
             serverSocket = new ServerSocket(3000);
@@ -28,27 +33,79 @@ public class GameServer {
             System.err.println("Server startup error: " + e.getMessage());
             e.printStackTrace();
         }
+
     }
 
-    public void sendGameState(GameState state) {
-        try {
-            out.writeObject(state);
-            out.flush();
-        } catch (IOException e) {
-            System.err.println("GameState sending error: " + e.getMessage());
-        }
+    public void startGameLoop(GameState initialState, GamePanel panel) {
+        this.gameState = initialState;
+        this.gamePanel = panel;
+        running = true;
+
+        gameLoopThread = new Thread(() -> {
+            System.out.println("Game loop started on server");
+
+            while (running) {
+                try {
+                    // Get host player input from GamePanel (left paddle)
+                    if (gamePanel != null) {
+                        int hostMoveY = gamePanel.getCurrentMoveY();
+                        gameState.paddleLeftY += hostMoveY;
+                    }
+
+                    // Receive client input (right paddle)
+                    PlayerInput playerInput = (PlayerInput) in.readObject();
+                    System.out.println("Player received: " + playerInput.toString());
+
+                    if (playerInput != null){
+                        gameState.paddleRightY += playerInput.moveY;
+                    }
+
+                    // Update game physics
+                    gameState.moveBall();
+                    gameState.checkBoundaries();
+
+                    // Send updated game state to client
+                    out.reset();
+                    out.writeObject(gameState);
+                    out.flush();
+                    System.out.println("game state: " + gameState.paddleRightY);
+
+                    // Update server's screen
+                    if (gamePanel != null) {
+                        gamePanel.gameState = gameState;
+                        gamePanel.repaint();
+                    }
+
+                    Thread.sleep(16); // ~60 FPS
+
+                } catch (InterruptedException e) {
+                    System.out.println("Game loop interrupted");
+                    break;
+                } catch (Exception e) {
+                    System.err.println("Game loop error: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+
+            System.out.println("Game loop stopped");
+        });
+
+        gameLoopThread.start();
     }
 
-    public PlayerInput receiveInput() {
-        try {
-            return (PlayerInput) in.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            System.err.println("PlayerInput receiving error: " + e.getMessage());
-            return null;
+    public void stopGameLoop() {
+        running = false;
+        if (gameLoopThread != null) {
+            try {
+                gameLoopThread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
     public void close() {
+        stopGameLoop();
         try {
             if (in != null) in.close();
             if (out != null) out.close();

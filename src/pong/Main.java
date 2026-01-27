@@ -54,12 +54,19 @@ public class Main {
         frame.setVisible(true);
 
         GameServer server = new GameServer();
+        server.startGameLoop(gameState, gamePanel);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            server.close();
+        }));
     }
 
     private static void startAsClient() {
         System.out.println("Starting as Client...");
 
         GameState gameState = new GameState();
+        gameState.prevBallX = 350;
+        gameState.prevBallY = 200;
         gameState.ballX = 400;
         gameState.ballY = 250;
         gameState.paddleLeftY = 200;
@@ -78,5 +85,10 @@ public class Main {
         frame.setVisible(true);
 
         GameClient client = new GameClient();
+        client.startGameLoop(gameState, gamePanel);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            client.close();
+        }));
     }
 }
