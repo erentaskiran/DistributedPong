@@ -1,4 +1,11 @@
 package pong;
 
-public class PlayerInput {
+import java.io.Serializable;
+
+public class PlayerInput implements Serializable {
+    int moveY;
+
+    public PlayerInput(int moveY) {
+        this.moveY = moveY;
+    }
 }
