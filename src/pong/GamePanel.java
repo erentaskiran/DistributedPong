@@ -3,28 +3,36 @@ package pong;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class GamePanel extends JPanel {
-    GameState gameState;
-    private int currentMoveY = 0; // Current input state
+    volatile GameState gameState;
+
+    // Thread-safe değişkenler
+    private final AtomicInteger currentMoveY = new AtomicInteger(0);
     private static final int PADDLE_SPEED = 5;
 
     // Pause menu components
-    private boolean showPauseMenu = false;
+    private final AtomicBoolean showPauseMenu = new AtomicBoolean(false);
     private Rectangle pauseButtonRect = new Rectangle(10, 10, 40, 40);
     private Rectangle resumeButtonRect;
     private Rectangle scoresButtonRect;
     private Rectangle restartButtonRect;
     private Rectangle backButtonRect;
-    private boolean showScoresPanel = false;
+    private final AtomicBoolean showScoresPanel = new AtomicBoolean(false);
 
     // Callback for restart action
     private Runnable onRestart;
     private Runnable onPauseToggle;
 
     // Flag to request pause from client (sent to server)
-    private volatile boolean pauseRequested = false;
-    private volatile boolean restartRequested = false;
+    private final AtomicBoolean pauseRequested = new AtomicBoolean(false);
+    private final AtomicBoolean restartRequested = new AtomicBoolean(false);
+
+    // Lock for thread-safe rendering
+    private final ReentrantReadWriteLock renderLock = new ReentrantReadWriteLock();
 
     public GamePanel() {
         setFocusable(true);
@@ -33,11 +41,11 @@ public class GamePanel extends JPanel {
             public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                     togglePauseMenu();
-                } else if (!showPauseMenu) {
+                } else if (!showPauseMenu.get()) {
                     if (e.getKeyCode() == KeyEvent.VK_UP || e.getKeyCode() == KeyEvent.VK_W) {
-                        currentMoveY = -PADDLE_SPEED;
+                        currentMoveY.set(-PADDLE_SPEED);
                     } else if (e.getKeyCode() == KeyEvent.VK_DOWN || e.getKeyCode() == KeyEvent.VK_S) {
-                        currentMoveY = PADDLE_SPEED;
+                        currentMoveY.set(PADDLE_SPEED);
                     }
                 }
             }
@@ -46,7 +54,7 @@ public class GamePanel extends JPanel {
             public void keyReleased(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_UP || e.getKeyCode() == KeyEvent.VK_W ||
                     e.getKeyCode() == KeyEvent.VK_DOWN || e.getKeyCode() == KeyEvent.VK_S) {
-                    currentMoveY = 0;
+                    currentMoveY.set(0);
                 }
             }
         });
@@ -59,35 +67,35 @@ public class GamePanel extends JPanel {
         });
     }
 
-    public void setOnRestart(Runnable onRestart) {
+    public synchronized void setOnRestart(Runnable onRestart) {
         this.onRestart = onRestart;
     }
 
-    public void setOnPauseToggle(Runnable onPauseToggle) {
+    public synchronized void setOnPauseToggle(Runnable onPauseToggle) {
         this.onPauseToggle = onPauseToggle;
     }
 
-    private void togglePauseMenu() {
-        showPauseMenu = !showPauseMenu;
-        showScoresPanel = false;
+    private synchronized void togglePauseMenu() {
+        showPauseMenu.set(!showPauseMenu.get());
+        showScoresPanel.set(false);
         if (onPauseToggle != null) {
             onPauseToggle.run();
         }
         repaint();
     }
 
-    private void handleMouseClick(int x, int y) {
+    private synchronized void handleMouseClick(int x, int y) {
         // Check pause button click
         if (pauseButtonRect.contains(x, y)) {
             togglePauseMenu();
             return;
         }
 
-        if (showPauseMenu) {
-            if (showScoresPanel) {
+        if (showPauseMenu.get()) {
+            if (showScoresPanel.get()) {
                 // Back button in scores panel
                 if (backButtonRect != null && backButtonRect.contains(x, y)) {
-                    showScoresPanel = false;
+                    showScoresPanel.set(false);
                     repaint();
                 }
             } else {
@@ -97,13 +105,13 @@ public class GamePanel extends JPanel {
                 }
                 // Scores button
                 else if (scoresButtonRect != null && scoresButtonRect.contains(x, y)) {
-                    showScoresPanel = true;
+                    showScoresPanel.set(true);
                     repaint();
                 }
                 // Restart button
                 else if (restartButtonRect != null && restartButtonRect.contains(x, y)) {
-                    showPauseMenu = false;
-                    showScoresPanel = false;
+                    showPauseMenu.set(false);
+                    showScoresPanel.set(false);
                     if (onRestart != null) {
                         onRestart.run();
                     }
@@ -114,87 +122,88 @@ public class GamePanel extends JPanel {
     }
 
     public int getCurrentMoveY() {
-        if (showPauseMenu) return 0; // No movement when paused
-        return currentMoveY;
+        if (showPauseMenu.get()) return 0; // No movement when paused
+        return currentMoveY.get();
     }
 
     public boolean isPaused() {
-        return showPauseMenu;
+        return showPauseMenu.get();
     }
 
-    public void setPaused(boolean paused) {
+    public synchronized void setPaused(boolean paused) {
         // Only reset scores panel if we're unpausing
         if (!paused) {
-            this.showScoresPanel = false;
+            this.showScoresPanel.set(false);
         }
-        this.showPauseMenu = paused;
+        this.showPauseMenu.set(paused);
         repaint();
     }
 
     // For client: request pause toggle (will be sent to server)
     public boolean isPauseRequested() {
-        boolean requested = pauseRequested;
-        pauseRequested = false; // Reset after reading
-        return requested;
+        return pauseRequested.getAndSet(false); // Atomic get-and-reset
     }
 
     // Request a pause toggle (used by client)
-    public void requestPauseToggle() {
-        pauseRequested = true;
+    public synchronized void requestPauseToggle() {
+        pauseRequested.set(true);
     }
 
     // For client: request restart (will be sent to server)
     public boolean isRestartRequested() {
-        boolean requested = restartRequested;
-        restartRequested = false; // Reset after reading
-        return requested;
+        return restartRequested.getAndSet(false); // Atomic get-and-reset
     }
 
     // Request a restart (used by client)
-    public void requestRestart() {
-        restartRequested = true;
+    public synchronized void requestRestart() {
+        restartRequested.set(true);
     }
 
     @Override
     public void paintComponent(Graphics g){
         super.paintComponent(g);
 
-        if (gameState == null) {
-            gameState = new GameState();
-        }
+        renderLock.readLock().lock();
+        try {
+            if (gameState == null) {
+                gameState = new GameState();
+            }
 
-        Graphics2D g2d = (Graphics2D) g;
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Graphics2D g2d = (Graphics2D) g;
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Draw game background
-        g.setColor(Color.BLACK);
-        g.fillRect(0, 0, getWidth(), getHeight());
+            // Draw game background
+            g.setColor(Color.BLACK);
+            g.fillRect(0, 0, getWidth(), getHeight());
 
-        g.setColor(Color.WHITE);
+            g.setColor(Color.WHITE);
 
-        // Draw center line
-        for (int i = 0; i < getHeight(); i += 20) {
-            g.fillRect(getWidth() / 2 - 2, i, 4, 10);
-        }
+            // Draw center line
+            for (int i = 0; i < getHeight(); i += 20) {
+                g.fillRect(getWidth() / 2 - 2, i, 4, 10);
+            }
 
-        // Draw paddles
-        g.fillRect(20, gameState.paddleLeftY, 10, 80);
-        g.fillRect(getWidth() - 30, gameState.paddleRightY, 10, 80);
+            // Draw paddles
+            g.fillRect(20, gameState.paddleLeftY, 10, 80);
+            g.fillRect(getWidth() - 30, gameState.paddleRightY, 10, 80);
 
-        // Draw ball
-        g.fillOval(gameState.ballX, gameState.ballY, 15, 15);
+            // Draw ball
+            g.fillOval(gameState.ballX, gameState.ballY, 15, 15);
 
-        // Draw scores
-        g.setFont(new Font("Arial", Font.BOLD, 30));
-        g.drawString(String.valueOf(gameState.scoreLeft), getWidth() / 2 - 50, 50);
-        g.drawString(String.valueOf(gameState.scoreRight), getWidth() / 2 + 30, 50);
+            // Draw scores
+            g.setFont(new Font("Arial", Font.BOLD, 30));
+            g.drawString(String.valueOf(gameState.scoreLeft), getWidth() / 2 - 50, 50);
+            g.drawString(String.valueOf(gameState.scoreRight), getWidth() / 2 + 30, 50);
 
-        // Draw pause button (stop sign style)
-        drawPauseButton(g2d);
+            // Draw pause button (stop sign style)
+            drawPauseButton(g2d);
 
-        // Draw pause menu overlay if paused
-        if (showPauseMenu) {
-            drawPauseMenu(g2d);
+            // Draw pause menu overlay if paused
+            if (showPauseMenu.get()) {
+                drawPauseMenu(g2d);
+            }
+        } finally {
+            renderLock.readLock().unlock();
         }
     }
 
@@ -216,7 +225,7 @@ public class GamePanel extends JPanel {
         g2d.setColor(new Color(0, 0, 0, 180));
         g2d.fillRect(0, 0, getWidth(), getHeight());
 
-        if (showScoresPanel) {
+        if (showScoresPanel.get()) {
             drawScoresPanel(g2d);
         } else {
             drawMainPauseMenu(g2d);
