@@ -33,6 +33,16 @@ public class GameClient {
         this.gamePanel = panel;
         running = true;
 
+        // Set up callback for client pause toggle - will send request to server
+        gamePanel.setOnPauseToggle(() -> {
+            gamePanel.requestPauseToggle();
+        });
+
+        // Set up callback for client restart - will send request to server
+        gamePanel.setOnRestart(() -> {
+            gamePanel.requestRestart();
+        });
+
         gameLoopThread = new Thread(() -> {
             System.out.println("Game loop started on client");
 
@@ -42,6 +52,10 @@ public class GameClient {
                     PlayerInput playerInput = new PlayerInput();
                     if (gamePanel != null) {
                         playerInput.moveY = gamePanel.getCurrentMoveY();
+                        // Check if client requested pause
+                        playerInput.pauseRequest = gamePanel.isPauseRequested();
+                        // Check if client requested restart
+                        playerInput.restartRequest = gamePanel.isRestartRequested();
                     } else {
                         playerInput.moveY = 0;
                     }
@@ -54,6 +68,11 @@ public class GameClient {
                     GameState newGameState = (GameState) in.readObject();
                     if (newGameState != null){
                         gameState = newGameState;
+
+                        // Sync pause state from server to client UI
+                        if (gamePanel != null) {
+                            gamePanel.setPaused(gameState.isPaused);
+                        }
                     }
 
                     // Update panel with new game state

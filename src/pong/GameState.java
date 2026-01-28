@@ -16,6 +16,9 @@ public class GameState implements Serializable {
     int ballVelocityX = 5;
     int ballVelocityY = 5;
 
+    // Pause state
+    boolean isPaused = false;
+
     // Game constants
     private static final int BALL_SIZE = 15;
     private static final int PADDLE_WIDTH = 10;
@@ -109,5 +112,19 @@ public class GameState implements Serializable {
         }
     }
 
+    public void resetGame() {
+        ballX = GAME_WIDTH / 2;
+        ballY = GAME_HEIGHT / 2;
+        paddleLeftY = GAME_HEIGHT / 2 - PADDLE_HEIGHT / 2;
+        paddleRightY = GAME_HEIGHT / 2 - PADDLE_HEIGHT / 2;
+        scoreLeft = 0;
+        scoreRight = 0;
+        ballVelocityX = 5;
+        ballVelocityY = 5;
+        isPaused = false;
+    }
 
+    public void togglePause() {
+        isPaused = !isPaused;
+    }
 }
