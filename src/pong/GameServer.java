@@ -14,6 +14,7 @@ public class GameServer {
     private GamePanel gamePanel;
     private Thread gameLoopThread;
     private volatile boolean running = false;
+    private volatile boolean paused = false;
 
     public GameServer() {
         try {
@@ -36,10 +37,37 @@ public class GameServer {
 
     }
 
+    public void togglePause() {
+        paused = !paused;
+        if (gameState != null) {
+            gameState.isPaused = paused;
+        }
+    }
+
+    public void restartGame() {
+        if (gameState != null) {
+            gameState.resetGame();
+            paused = false;
+        }
+        if (gamePanel != null) {
+            gamePanel.setPaused(false);
+            gamePanel.repaint();
+        }
+    }
+
     public void startGameLoop(GameState initialState, GamePanel panel) {
         this.gameState = initialState;
         this.gamePanel = panel;
         running = true;
+
+        // Set up callbacks for pause and restart
+        gamePanel.setOnPauseToggle(() -> {
+            togglePause();
+        });
+
+        gamePanel.setOnRestart(() -> {
+            restartGame();
+        });
 
         gameLoopThread = new Thread(() -> {
             System.out.println("Game loop started on server");
@@ -47,7 +75,7 @@ public class GameServer {
             while (running) {
                 try {
                     // Get host player input from GamePanel (left paddle)
-                    if (gamePanel != null) {
+                    if (gamePanel != null && !paused) {
                         int hostMoveY = gamePanel.getCurrentMoveY();
                         gameState.paddleLeftY += hostMoveY;
                     }
@@ -56,13 +84,31 @@ public class GameServer {
                     PlayerInput playerInput = (PlayerInput) in.readObject();
                     System.out.println("Player received: " + playerInput.toString());
 
-                    if (playerInput != null){
+                    // Handle client pause request
+                    if (playerInput.pauseRequest) {
+                        togglePause();
+                        if (gamePanel != null) {
+                            gamePanel.setPaused(paused);
+                        }
+                    }
+
+                    // Handle client restart request
+                    if (playerInput.restartRequest) {
+                        restartGame();
+                    }
+
+                    if (playerInput != null && !paused){
                         gameState.paddleRightY += playerInput.moveY;
                     }
 
-                    // Update game physics
-                    gameState.moveBall();
-                    gameState.checkBoundaries();
+                    // Update game physics only if not paused
+                    if (!paused) {
+                        gameState.moveBall();
+                        gameState.checkBoundaries();
+                    }
+
+                    // Sync pause state
+                    gameState.isPaused = paused;
 
                     // Send updated game state to client
                     out.reset();
