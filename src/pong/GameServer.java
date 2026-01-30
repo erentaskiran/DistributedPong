@@ -101,26 +101,25 @@ public class GameServer {
         running.set(true);
 
         // Set up callbacks for pause and restart
-        gamePanel.setOnPauseToggle(() -> {
-            togglePause();
-        });
+        gamePanel.setOnPauseToggle(this::togglePause);
 
-        gamePanel.setOnRestart(() -> {
-            restartGame();
-        });
+        gamePanel.setOnRestart(this::restartGame);
 
-        // Input processor thread - Processes inputs from BlockingQueue
+        // Client input processor thread - Processes inputs from BlockingQueue
         CompletableFuture.runAsync(() -> {
             System.out.println("Input processor started");
             while (running.get()) {
                 try {
                     PlayerInput playerInput = (PlayerInput) in.readObject();
-                    inputQueue.offer(playerInput, 100, TimeUnit.MILLISECONDS);
+                    if (!inputQueue.offer(playerInput, 100, TimeUnit.MILLISECONDS)) {
+                        System.err.println("WARNING: Player input dropped - queue full or timeout");
+                    }
                 } catch (Exception e) {
                     if (running.get()) {
                         System.err.println("Input reading error: " + e.getMessage());
                     }
                 }
+
             }
         }, executorService);
 
